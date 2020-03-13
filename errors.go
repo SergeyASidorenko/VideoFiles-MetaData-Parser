@@ -58,6 +58,5 @@ func (e APIError) MarshalJSON() (b []byte, err error) {
 
 // NewAPIError создание новой ошибки
 func NewAPIError(msg string, err error) (e APIError) {
-	e = APIError{APIMsg: msg, Msg: msg, Err: err}
-	return e
+	return APIError{APIMsg: msg, Msg: msg, Err: err}
 }
