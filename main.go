@@ -6,6 +6,7 @@
 package main
 
 import (
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -16,11 +17,16 @@ func initLog(filePath string) error {
 	if _, err := os.Stat(filePath); err != nil {
 		if os.IsNotExist(err) {
 			logFile, err = os.Create(filePath)
+			if err != nil {
+				return fmt.Errorf("не удалось инициализировать логирование ошибок: %w", err)
+			}
+		} else {
+			return fmt.Errorf("не удалось инициализировать логирование ошибок: %w", err)
 		}
 	} else {
 		logFile, err = os.OpenFile(filePath, os.O_APPEND|os.O_WRONLY, 0600)
 		if err != nil {
-			log.Fatalln("не удалось инициализировать логирование ошибок")
+			return fmt.Errorf("не удалось инициализировать логирование ошибок: %w", err)
 		}
 	}
 	log.SetOutput(logFile)
