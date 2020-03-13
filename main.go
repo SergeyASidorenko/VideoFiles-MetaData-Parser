@@ -13,6 +13,7 @@ import (
 	"os"
 )
 
+// инициализования лога для ошибок
 func initLog(filePath string) error {
 	var logFile *os.File
 	if _, err := os.Stat(filePath); err != nil {
@@ -30,6 +31,7 @@ func initLog(filePath string) error {
 			return fmt.Errorf("не удалось инициализировать логирование ошибок: %w", err)
 		}
 	}
+	// сопоставляем созданный файл, как приемник логирования
 	log.SetOutput(logFile)
 	return nil
 }

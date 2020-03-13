@@ -41,9 +41,9 @@ var codecs = map[string]string{"isom": "ISO 14496-1 Base Media", "iso2": "ISO 14
 type VideoFile struct {
 	buffer       *bufio.Reader // буфер всего файла
 	metaDataBuf  *bytes.Reader // буфер с метаданными
-	blockSize    int64         // размера текущего блока
-	startOfBlock int64         // позиция начала блока относительно начала потока данных
-	Size         int64         // размер файла
+	blockSize    int64         // размера текущего блока (байт)
+	startOfBlock int64         // позиция начала блока относительно начала потока данных (байт)
+	Size         int64         // размер файла (байт)
 	Codec        string        // стандарт используемого сжатия видео и аудио потоков
 	Movie        Container     // видеоконтейнер
 }
@@ -53,9 +53,9 @@ type Container struct {
 	durationFlag  byte      // флаг, описывающий формат представления дат в файле (либо 0x0 - дата храниться как 4 байта, либо 0x1 - как 8 байт)
 	Created       time.Time // Время создания
 	Modified      time.Time // Время изменения
-	TimeScale     uint32    // единица времени, используемая для квантования
-	Duration      float64   // продолжительность медиа-данных в контейнере
-	PlayBackSpeed uint16    // скорость воспроизведения
+	TimeScale     uint32    // единица времени, используемая для квантования (обычно доли секунды)
+	Duration      float64   // продолжительность медиа-данных в контейнере (сек)
+	PlayBackSpeed uint16    // скорость воспроизведения (смысл значения мне до сих пор непонятен)
 	Volume        string    // уровень звука (относительный)
 	Tracks        []Track   // медиа-дорожки, содержащиеся в контейнере
 }
@@ -65,9 +65,9 @@ type Track struct {
 	durationFlag byte      // флаг, описывающий формат представления дат в файле (либо 0x0 - дата храниться как 4 байта, либо 0x1 - как 8 байт)
 	Created      time.Time // Время создания
 	Modified     time.Time // Время изменения
-	Duration     float64   // продолжительность медиа-дорожки
-	Height       uint32    // высота для дорожки видеопотока
-	Width        uint32    // ширина для дорожки видеопотока
+	Duration     float64   // продолжительность медиа-дорожки (сек)
+	Height       uint32    // высота для дорожки видеопотока (пиксель)
+	Width        uint32    // ширина для дорожки видеопотока (пиксель)
 	Stream       Streamer  // медиапоток данных, с которым связана данная дорожка (одна дорожка - один поток)
 }
 
@@ -91,9 +91,9 @@ type Streamer interface {
 // 	IPMP = 'ipsm';
 // MPEG-J = 'mjsm';
 type Stream struct {
-	durationFlag byte    // флаг, описывающий формат представления дат в файле (либо 0x0 - дата храниться как 4 байта, либо 0x1 - как 8 байт)
-	TimeScale    uint32  // Частота дискретизации
-	Duration     float64 // Продолжительность
+	durationFlag byte    // Флаг, описывающий формат представления дат в файле (либо 0x0 - дата храниться как 4 байта, либо 0x1 - как 8 байт)
+	TimeScale    uint32  // Частота сэмплирования (для видео = велчина кадров в секунду ; для аудио = количество сэмлов в секунду)
+	Duration     float64 // Продолжительность (сек)
 	Type         string  // Тип потока
 }
 
@@ -107,17 +107,17 @@ type AudioStream struct {
 	*Stream
 	AudioBalance string // Баланс
 	Format       string // Формат
-	Channels     string // Количество каналов
-	SampleRate   uint32 // Частота дискретизации
+	Channels     string // Количество каналов (моно, стерео, ...)
+	SampleRate   uint32 // Частота дискретизации (Гц)
 }
 
 // VideoStream данные видеопотока
 type VideoStream struct {
 	*Stream
 	Format     string // Формат
-	ResY       uint16 // Разрешение по вертикали
-	ResX       uint16 // Разрешение по вертикали
-	ColorDepth uint16 // Глубина цвета
+	ResY       uint16 // Разрешение по вертикали (точек на дюйм)
+	ResX       uint16 // Разрешение по горизонтали (точек на дюйм)
+	ColorDepth uint16 // Глубина цвета (бит)
 }
 
 // Prepare получение значения последнего элемента
