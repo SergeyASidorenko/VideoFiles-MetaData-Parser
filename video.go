@@ -96,15 +96,10 @@ type StreamReader interface {
 // MPEG-J = 'mjsm';
 type Stream struct {
 	durationFlag byte    // флаг, описывающий формат представления дат в файле (либо 0x0 - дата храниться как 4 байта, либо 0x1 - как 8 байт)
-	TimeScale    uint32  // частота сэмплирования (для видео = велчина кадров в секунду ; для аудио = количество сэмлов в секунду)
+	TimeScale    uint32  // частота сэмплирования (для видео = количество кадров в секунду; для аудио = количество сэмплов в секунду)
 	Duration     float64 // продолжительность (сек)
 	Type         string  // тип потока
 }
-
-// Информация о потоках представлена в секции 'minf'
-// Также есть два дополнительных блока информации для следующих потоков
-// Hint  в секции 'hint'
-// mpeg-4 media в секции 'nmhd'
 
 // AudioStream данные аудиопотока
 type AudioStream struct {
@@ -124,7 +119,7 @@ type VideoStream struct {
 	ColorDepth uint16 // глубина цвета (бит)
 }
 
-// Prepare получение значения последнего элемента
+// Prepare проверка на соответствие формата переданного содержимого стандартам MP4
 func (f *VideoFile) Prepare() (temp []byte, err error) {
 	// TODO
 	// Блок требует доработки, уж очень недостоверная проверка соответствия формату MP4 злесь
@@ -166,8 +161,8 @@ func (f *VideoFile) Prepare() (temp []byte, err error) {
 				var extraBytesForBlockSize int64 = 0x8
 				temp8 := make([]byte, 8)
 				_, err = io.ReadFull(f.buffer, temp8)
-				offset = int64(binary.BigEndian.Uint64(temp8)) - extraBytesForBlockSize
 				Fatal(err)
+				offset = int64(binary.BigEndian.Uint64(temp8)) - extraBytesForBlockSize
 			} else if offset == 0x0 {
 				return
 			}
