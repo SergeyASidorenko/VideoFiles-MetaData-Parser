@@ -55,7 +55,7 @@ type VideoFile struct {
 // Container Структура для хранения метаинформации о видеоконтейнере
 type Container struct {
 	durationFlag  byte      // флаг, описывающий формат представления дат в файле (либо 0x0 - дата храниться как 4 байта, либо 0x1 - как 8 байт)
-	Created       time.Time // Время создания
+	Created       time.Time // время создания
 	Modified      time.Time // время изменения
 	TimeScale     uint32    // единица времени, используемая для квантования (обычно доли секунды)
 	Duration      float64   // продолжительность медиа-данных в контейнере (сек)
@@ -66,33 +66,33 @@ type Container struct {
 
 // Track Структура для хранения метаинформации о медиа-дорожке
 type Track struct {
-	durationFlag byte      // флаг, описывающий формат представления дат в файле (либо 0x0 - дата храниться как 4 байта, либо 0x1 - как 8 байт)
-	Created      time.Time // время создания
-	Modified     time.Time // время изменения
-	Duration     float64   // продолжительность медиа-дорожки (сек)
-	Height       uint32    // высота для дорожки видеопотока (пиксель)
-	Width        uint32    // ширина для дорожки видеопотока (пиксель)
-	Stream       Streamer  // медиапоток данных, с которым связана данная дорожка (одна дорожка - один поток)
+	durationFlag byte         // флаг, описывающий формат представления дат в файле (либо 0x0 - дата храниться как 4 байта, либо 0x1 - как 8 байт)
+	Created      time.Time    // время создания
+	Modified     time.Time    // время изменения
+	Duration     float64      // продолжительность медиа-дорожки (сек)
+	Height       uint32       // высота для дорожки видеопотока (пиксель)
+	Width        uint32       // ширина для дорожки видеопотока (пиксель)
+	Stream       StreamReader // медиапоток данных, с которым связана данная дорожка (одна дорожка - один поток)
 }
 
-// Streamer интерфейс медиапотока данных (их может быть аж до 10 типов, в нашем случае - только два)
-type Streamer interface {
+// StreamReader интерфейс медиапотока данных (их может быть аж до 10 типов, в нашем случае - только два)
+type StreamReader interface {
 	Read(buf *bytes.Reader) error // чтение данных исключительно, касающихся медиапотока
 	GetType() string              // получениет типа потока
 }
 
 // Stream общее описание потока, блок с именем 'minf',
-//	============================================================
-// 	ПОТОКИ
-// 	Visual Media = 'vide';
-// 	Audio Media = 'soun';
-// 	Hint = "hint';
-// 	Object Descriptor = 'odsm';
-// 	Clock Reference = 'crsm';
-// 	Scene Description = 'sdsm';
-// 	MPEG-7 Stream = 'm7sm';
-// 	Object Content Info = 'ocsm';
-// 	IPMP = 'ipsm';
+// ============================================================
+// ПОТОКИ
+// Visual Media = 'vide';
+// Audio Media = 'soun';
+// Hint = "hint';
+// Object Descriptor = 'odsm';
+// Clock Reference = 'crsm';
+// Scene Description = 'sdsm';
+// MPEG-7 Stream = 'm7sm';
+// Object Content Info = 'ocsm';
+// IPMP = 'ipsm';
 // MPEG-J = 'mjsm';
 type Stream struct {
 	durationFlag byte    // флаг, описывающий формат представления дат в файле (либо 0x0 - дата храниться как 4 байта, либо 0x1 - как 8 байт)
