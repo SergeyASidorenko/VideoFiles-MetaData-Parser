@@ -266,7 +266,7 @@ func (f *VideoFile) SeekBlockEnd() (err error) {
 	if err != nil {
 		return err
 	}
-	_, err = f.metaDataBuf.Seek(f.offset-(curPos-f.startOfBlock), io.SeekCurrent)
+	_, err = f.metaDataBuf.Seek(f.blockSize-(curPos-f.startOfBlock), io.SeekCurrent)
 	if err != nil {
 		return err
 	}
