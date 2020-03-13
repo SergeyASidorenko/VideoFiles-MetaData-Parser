@@ -18,29 +18,40 @@ import (
 
 // Константы типа потоков
 const (
-	Audio           string = "Audio Media"  // аудиопоток
-	Video           string = "Visual Media" // видеопоток
-	Hint            string = "Hint"         // поток-наводка (подсказка)
-	HeaderBlockSize        = 0x8            // размер заголовка блока
+	Audio string = "Audio Media"  // аудиопоток
+	Video string = "Visual Media" // видеопоток
+	Hint  string = "Hint"         // поток-наводка (подсказка)
 )
+
+// HeaderBlockSize размер заголовка блока
+const HeaderBlockSize = 0x8
 
 var streamTypes = map[string]string{"soun": "Audio Media", "vide": "Visual Media"}
 var codecs = map[string]string{"isom": "ISO 14496-1 Base Media", "iso2": "ISO 14496-12 Base Media", "mp41": "ISO 14496-1 vers. 1", "mp42": "ISO 14496-1 vers. 2"}
 
 // VideoFile Структура для хранения метаинформации о видеофайле
+// Файл MP4 представляет собой древовидную структуру
+// узлы которой описывают определенную часть информации о файле одни - в более общей форме ( если это узел), другие
+// непосредственно - так называемые листья логической структуры видеофайла
+// Термин "Блок" здесь используется как логический узел этого дерева и может рассматриваться как
+// участок содержимого файла со специальным описанием (индентификатором (именем) блока и размером) и его
+// содержимым, содержимое блока - это данные, несущие определенную информацию о видеофайле.
+// Описание блока здесь именуется как заголовок блока
+// Этот заголовок имеет размер 8 байт и всегда располагается в начале блока.
+// Размер блока включает в себя размер заголовка
 type VideoFile struct {
 	buffer       *bufio.Reader // буфер всего файла
 	metaDataBuf  *bytes.Reader // буфер с метаданными
-	offset       int64
-	startOfBlock int64
-	Size         int64     // размер файла
-	Codec        string    // стандарт используемого сжатия видео и аудио потоков
-	Movie        Container // видеоконтейнер
+	blockSize    int64         // размера текущего блока
+	startOfBlock int64         // позиция начала блока относительно начала потока данных
+	Size         int64         // размер файла
+	Codec        string        // стандарт используемого сжатия видео и аудио потоков
+	Movie        Container     // видеоконтейнер
 }
 
 // Container Структура для хранения метаинформации о видеоконтейнере
 type Container struct {
-	durationFlag  byte
+	durationFlag  byte      // флаг, описывающий формат представления дат в файле (либо 0x0 - дата храниться как 4 байта, либо 0x1 - как 8 байт)
 	Created       time.Time // Время создания
 	Modified      time.Time // Время изменения
 	TimeScale     uint32    // единица времени, используемая для квантования
@@ -52,23 +63,22 @@ type Container struct {
 
 // Track Структура для хранения метаинформации о медиа-дорожке
 type Track struct {
-	durationFlag byte
+	durationFlag byte      // флаг, описывающий формат представления дат в файле (либо 0x0 - дата храниться как 4 байта, либо 0x1 - как 8 байт)
 	Created      time.Time // Время создания
 	Modified     time.Time // Время изменения
 	Duration     float64   // продолжительность медиа-дорожки
 	Height       uint32    // высота для дорожки видеопотока
 	Width        uint32    // ширина для дорожки видеопотока
-	Stream       Streamer  // поток данных, с которой связан данная дорожка
+	Stream       Streamer  // медиапоток данных, с которым связана данная дорожка (одна дорожка - один поток)
 }
 
-// Streamer интерфейс потока данных (их может быть аж до 9 типов, в нашем случае - только два)
+// Streamer интерфейс медиапотока данных (их может быть аж до 10 типов, в нашем случае - только два)
 type Streamer interface {
-	Read(buf *bytes.Reader) error
-	GetType() string
+	Read(buf *bytes.Reader) error // чтение данных исключительно, касающихся медиапотока
+	GetType() string              // получениет типа потока
 }
 
-// Stream общее описание потоков, заголовочная часть 'minf',
-// например, здесь описываются все возможные типы потоков
+// Stream общее описание потока, блок с именем 'minf',
 //	============================================================
 // 	ПОТОКИ
 // 	Visual Media = 'vide';
@@ -79,9 +89,10 @@ type Streamer interface {
 // 	Scene Description = 'sdsm';
 // 	MPEG-7 Stream = 'm7sm';
 // 	Object Content Info = 'ocsm';
-// 	IPMP = 'ipsm' : MPEG-J = 'mjsm';
+// 	IPMP = 'ipsm';
+// MPEG-J = 'mjsm';
 type Stream struct {
-	durationFlag byte
+	durationFlag byte    // флаг, описывающий формат представления дат в файле (либо 0x0 - дата храниться как 4 байта, либо 0x1 - как 8 байт)
 	TimeScale    uint32  // Частота дискретизации
 	Duration     float64 // Продолжительность
 	Type         string  // Тип потока
@@ -162,7 +173,7 @@ func (f *VideoFile) Parse() (err error) {
 	}
 	Fatal(err)
 	box = string(cur[4:8])
-	f.offset = int64(binary.BigEndian.Uint32(cur[:4]))
+	f.blockSize = int64(binary.BigEndian.Uint32(cur[:4]))
 	// Данный блок позволяет войти внутрь интересующего блока описания данных в
 	// видеофайле, структура видеофайла - это дерево блоков,
 	// каждый блок описывает определенную часть файла, например, блок медиаданных,
@@ -195,7 +206,13 @@ func (f *VideoFile) Parse() (err error) {
 		f.GetCurrentTrack().Stream = vStream
 	case "stsd":
 		f.ReadStreamExtraInfo()
+
+	// следующие инструкции позволяют вызвать сразу рекурсивно метод Parse
+	// без перемещения указателя на конец этого блока,
+	// таким образом мы как бы заходим внутрь узлов с нижеперечисленными именами
 	case "trak":
+		// в дереве файла может быть несколько узлов 'trak' (несколько медиадорожек), поэтому после рекурсивного вызова
+		// мы ждем возврата и перескакиваем на конец текущего трека, в надежде найти следующий блок 'trak'
 		f.Parse()
 	case "mdia":
 		fallthrough
@@ -206,6 +223,7 @@ func (f *VideoFile) Parse() (err error) {
 	case "moov":
 		return f.Parse()
 	}
+	// перемещаемся на позицию конца текущего блока
 	err = f.SeekBlockEnd()
 	Fatal(err)
 	return f.Parse()
