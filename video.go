@@ -445,6 +445,7 @@ func (f *VideoFile) ReadStreamExtraInfo() (err error) {
 		_, err = f.metaDataBuf.Read(temp)
 		Fatal(err)
 		channels := binary.BigEndian.Uint16(temp)
+		audioStream.Channels = "undefined"
 		if channels == 1 {
 			audioStream.Channels = "Mono"
 		} else if channels == 2 {
