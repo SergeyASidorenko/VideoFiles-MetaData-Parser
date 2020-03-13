@@ -1,4 +1,4 @@
-// Copyright 2020 The Home. All rights not reserved.
+// Copyright 2020 Sergey Sidorenko. All rights not reserved.
 // Пакет с реализацией модудя извлечения метаинформации видеофайла в формате mp4
 // Сведения о лицензии отсутствуют
 
