@@ -6,6 +6,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
@@ -38,7 +39,9 @@ func parseVideoInForm(res http.ResponseWriter, req *http.Request) {
 		defer (func() {
 			if r := recover(); r != nil {
 				e := r.(error)
-				data, _ := fileInfo.SendError(e)
+				apiErr := fileInfo.GetError(e)
+				log.Printf(apiErr.Error())
+				data, _ := json.Marshal(apiErr)
 				res.Write(data)
 			}
 		})()

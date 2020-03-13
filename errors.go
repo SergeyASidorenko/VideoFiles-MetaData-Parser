@@ -6,6 +6,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"time"
 )
@@ -37,7 +38,15 @@ type APIError struct {
 
 // Error текст ошибки
 func (e APIError) Error() string {
-	return e.Msg + " " + e.Err.Error()
+	var tempErr APIError
+	err := e.Err
+	msg := e.Msg
+	for errors.Is(err, &tempErr) {
+		msg = msg + "; " + tempErr.Error()
+		err = tempErr.Err
+	}
+	msg += "; " + err.Error()
+	return msg
 }
 
 // UnWrap извлечение ошибки

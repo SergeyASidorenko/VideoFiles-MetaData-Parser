@@ -12,7 +12,6 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
-	"log"
 	"time"
 )
 
@@ -123,6 +122,9 @@ type VideoStream struct {
 
 // Prepare получение значения последнего элемента
 func (f *VideoFile) Prepare() (temp []byte, err error) {
+	// TODO
+	// Блок требует доработки, уж очень недостоверная проверка соответствия формату MP4 злесь
+
 	// Если блок прочитан полностью - смещать на начало следующего блока не надо
 	// для этого используется флаг isBlockRead
 	var isBlockRead bool
@@ -149,6 +151,21 @@ func (f *VideoFile) Prepare() (temp []byte, err error) {
 			temp = append(temp, boxInfo...)
 			temp = append(temp, b...)
 			isBlockRead = true
+		}
+		// дополнительная обработка блока медиаданных
+		//  здесь формат заголовка может быть другим
+		// в случае больших файлов под размер блока может отводиться не 4 а 8 байтов, а
+		// иногда (если длина этого блока указана как 0x0 данные этого блока продолжаются аж до конца файла)
+		if box == "mdat" {
+			if offset == 0x1 {
+				var extraBytesForBlockSize int64 = 0x8
+				temp8 := make([]byte, 8)
+				_, err = io.ReadFull(f.buffer, temp8)
+				offset = int64(binary.BigEndian.Uint64(temp8)) - extraBytesForBlockSize
+				Fatal(err)
+			} else if offset == 0x0 {
+				return
+			}
 		}
 		if !isBlockRead {
 			_, err = f.buffer.Discard(int(offset - HeaderBlockSize))
@@ -288,18 +305,13 @@ func (f *VideoFile) ReadFileInfo() (err error) {
 	return nil
 }
 
-// SendError Отправка ошибки в формате JSON
-func (f *VideoFile) SendError(e error) (b []byte, err error) {
+// GetError Выдача описания ошибки сервиса вышестоящим потребителям
+func (f *VideoFile) GetError(e error) *APIError {
 	var apiErr APIError
-	if !errors.As(e, &apiErr) {
+	if !errors.Is(e, &apiErr) {
 		apiErr = NewAPIError("ошибка на стороне сервера", e)
 	}
-	b, err = json.Marshal(apiErr)
-	if err != nil {
-		return nil, err
-	}
-	log.Println(apiErr.Error())
-	return b, nil
+	return &apiErr
 }
 
 // IsSupported Проверка формата видеофайла (поддерживается или нет)
@@ -310,6 +322,7 @@ func (f *VideoFile) IsSupported(brand string) bool {
 
 // ReadContainer Чтение общей информации о видеоконтейнере
 func (f *VideoFile) ReadContainer() (err error) {
+	defer Restore(&err, "ошибка чтения метаданных контейнера")
 	// подготавливаем буферы для чтения различных полей (разной длины)
 	var temp2 = make([]byte, 2)
 	var temp4 = make([]byte, 4)
@@ -368,6 +381,7 @@ func (f *VideoFile) ReadContainer() (err error) {
 
 // ReadTrack Чтение общей информации о медиа-дорожке
 func (f *VideoFile) ReadTrack() (err error) {
+	defer Restore(&err, "ошибка чтения метаданных медиадорожки")
 	var temp4 = make([]byte, 4)
 	var temp8 = make([]byte, 8)
 	// Создаем пустую дорожку
@@ -428,6 +442,7 @@ func (f *VideoFile) GetCurrentTrack() *Track {
 
 // ReadStreamExtraInfo Чтение дополнительной информации о потоке
 func (f *VideoFile) ReadStreamExtraInfo() (err error) {
+	defer Restore(&err, "ошибка чтения дополнительных метаданных медиапотока")
 	_, err = f.metaDataBuf.Seek(8, io.SeekCurrent)
 	Fatal(err)
 	StreamType := f.GetCurrentTrack().Stream.GetType()
@@ -470,8 +485,9 @@ func (stream *Stream) GetType() string {
 	return stream.Type
 }
 
-// ReadStream Чтение данные о потоке
+// Read Чтение данные о потоке
 func (stream *Stream) Read(buf *bytes.Reader) (err error) {
+	defer Restore(&err, "ошибка чтения метаданных медиапотока")
 	var temp = make([]byte, 4)
 	stream.durationFlag, err = buf.ReadByte()
 	Fatal(err)
@@ -512,6 +528,7 @@ func (stream *Stream) Read(buf *bytes.Reader) (err error) {
 
 // ReadAudioStream  Чтение информации об аудиопотоке
 func (stream *AudioStream) Read(buf *bytes.Reader) (err error) {
+	defer Restore(&err, "ошибка чтения метаданных аудиопотока")
 	temp := make([]byte, 2)
 	_, err = buf.Read(temp)
 	Fatal(err)
@@ -528,6 +545,7 @@ func (stream *AudioStream) Read(buf *bytes.Reader) (err error) {
 
 // ReadVideoStream Чтение информации о видеопотоке
 func (stream *VideoStream) Read(buf *bytes.Reader) (err error) {
+	defer Restore(&err, "ошибка чтения метаданных видеопотока")
 	temp := make([]byte, 4)
 	_, err = buf.Seek(4, io.SeekCurrent)
 	Fatal(err)
