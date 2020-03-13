@@ -17,8 +17,7 @@ func Restore(err *error, msg string) {
 	}
 	if r := recover(); r != nil {
 		*err = r.(error)
-		var e = NewAPIError(msg, *err)
-		*err = e
+		*err = NewAPIError(msg, *err)
 	}
 }
 
