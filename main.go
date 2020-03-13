@@ -36,7 +36,7 @@ func initLog(filePath string) error {
 func parseVideoInForm(res http.ResponseWriter, req *http.Request) {
 	if req.Method == "POST" {
 		var fileInfo VideoFile
-		defer (func() {
+		defer func() {
 			if r := recover(); r != nil {
 				e := r.(error)
 				apiErr := fileInfo.GetError(e)
@@ -44,7 +44,7 @@ func parseVideoInForm(res http.ResponseWriter, req *http.Request) {
 				data, _ := json.Marshal(apiErr)
 				res.Write(data)
 			}
-		})()
+		}()
 		var data []byte
 		res.Header().Set("Content-Type", "text/json")
 		err := fileInfo.Open(req.Body)
