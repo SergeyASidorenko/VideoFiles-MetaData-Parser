@@ -200,30 +200,30 @@ func (f *VideoFile) Parse() (err error) {
 	// либо переходим с смежному узлу (перемещаем указатель буфера на длину текущего блока)
 	switch box {
 	case "ftyp":
-		err = f.ReadFileInfo()
+		err = f.readFileInfo()
 		Fatal(err)
 	case "mvhd":
-		err = f.ReadContainer()
+		err = f.readContainer()
 		Fatal(err)
 	case "tkhd":
-		err = f.ReadTrack()
+		err = f.readTrack()
 		Fatal(err)
 	case "mdhd":
-		stream := f.GetCurrentTrack().Stream
+		stream := f.getCurrentTrack().Stream
 		err = stream.Read(f.metaDataBuf)
 		Fatal(err)
 	case "smhd":
 		aStream := new(AudioStream)
-		aStream.Stream = f.GetCurrentTrack().Stream.(*Stream)
-		f.GetCurrentTrack().Stream = aStream
+		aStream.Stream = f.getCurrentTrack().Stream.(*Stream)
+		f.getCurrentTrack().Stream = aStream
 		err = aStream.Read(f.metaDataBuf)
 		Fatal(err)
 	case "vmhd":
 		vStream := new(VideoStream)
-		vStream.Stream = f.GetCurrentTrack().Stream.(*Stream)
-		f.GetCurrentTrack().Stream = vStream
+		vStream.Stream = f.getCurrentTrack().Stream.(*Stream)
+		f.getCurrentTrack().Stream = vStream
 	case "stsd":
-		f.ReadStreamExtraInfo()
+		f.readStreamExtraInfo()
 
 	// следующие инструкции позволяют вызвать сразу рекурсивно метод Parse
 	// без перемещения указателя на конец этого блока,
@@ -242,7 +242,7 @@ func (f *VideoFile) Parse() (err error) {
 		return f.Parse()
 	}
 	// перемещаемся на позицию конца текущего блока
-	err = f.SeekBlockEnd()
+	err = f.seekBlockEnd()
 	Fatal(err)
 	return f.Parse()
 }
@@ -278,8 +278,8 @@ func (f VideoFile) getDateFromMP4(data []byte) (time.Time, error) {
 	return time.Time{}, errors.New("неизвестный формат даты")
 }
 
-// SeekBlockEnd Перескок в конец текущего раздела видеофайла и очистка буфера
-func (f *VideoFile) SeekBlockEnd() (err error) {
+// seekBlockEnd Перескок в конец текущего раздела видеофайла и очистка буфера
+func (f *VideoFile) seekBlockEnd() (err error) {
 	curPos, err := f.metaDataBuf.Seek(0, io.SeekCurrent)
 	if err != nil {
 		return err
@@ -291,15 +291,15 @@ func (f *VideoFile) SeekBlockEnd() (err error) {
 	return nil
 }
 
-// ReadFileInfo Чтение общей информации о видеофайле
-func (f *VideoFile) ReadFileInfo() (err error) {
+// readFileInfo Чтение общей информации о видеофайле
+func (f *VideoFile) readFileInfo() (err error) {
 	var temp = make([]byte, 4)
 	_, err = f.metaDataBuf.Read(temp)
 	if err != nil {
 		return err
 	}
 	brand := string(temp)
-	if !f.IsSupported(brand) {
+	if !f.isSupported(brand) {
 		return errors.New("формат видеофайла неизвестен или не поддерживается")
 	}
 	f.Codec = codecs[brand]
@@ -315,14 +315,14 @@ func (f *VideoFile) GetError(e error) *APIError {
 	return &apiErr
 }
 
-// IsSupported Проверка формата видеофайла (поддерживается или нет)
-func (f *VideoFile) IsSupported(brand string) bool {
+// isSupported Проверка формата видеофайла (поддерживается или нет)
+func (f *VideoFile) isSupported(brand string) bool {
 	_, ok := codecs[brand]
 	return ok
 }
 
-// ReadContainer Чтение общей информации о видеоконтейнере
-func (f *VideoFile) ReadContainer() (err error) {
+// readContainer Чтение общей информации о видеоконтейнере
+func (f *VideoFile) readContainer() (err error) {
 	defer Restore(&err, "ошибка чтения метаданных контейнера")
 	// подготавливаем буферы для чтения различных полей (разной длины)
 	var temp2 = make([]byte, 2)
@@ -380,8 +380,8 @@ func (f *VideoFile) ReadContainer() (err error) {
 	return nil
 }
 
-// ReadTrack Чтение общей информации о медиа-дорожке
-func (f *VideoFile) ReadTrack() (err error) {
+// readTrack Чтение общей информации о медиа-дорожке
+func (f *VideoFile) readTrack() (err error) {
 	defer Restore(&err, "ошибка чтения метаданных медиадорожки")
 	var temp4 = make([]byte, 4)
 	var temp8 = make([]byte, 8)
@@ -436,19 +436,19 @@ func (f *VideoFile) ReadTrack() (err error) {
 	return nil
 }
 
-// GetCurrentTrack Получение текущей обрабатываемой медиа-дорожки
-func (f *VideoFile) GetCurrentTrack() *Track {
+// getCurrentTrack Получение текущей обрабатываемой медиа-дорожки
+func (f *VideoFile) getCurrentTrack() *Track {
 	return &f.Movie.Tracks[len(f.Movie.Tracks)-1]
 }
 
-// ReadStreamExtraInfo Чтение дополнительной информации о потоке
-func (f *VideoFile) ReadStreamExtraInfo() (err error) {
+// readStreamExtraInfo Чтение дополнительной информации о потоке
+func (f *VideoFile) readStreamExtraInfo() (err error) {
 	defer Restore(&err, "ошибка чтения дополнительных метаданных медиапотока")
 	_, err = f.metaDataBuf.Seek(8, io.SeekCurrent)
 	Fatal(err)
-	StreamType := f.GetCurrentTrack().Stream.GetType()
+	StreamType := f.getCurrentTrack().Stream.GetType()
 	if StreamType == Audio {
-		audioStream := f.GetCurrentTrack().Stream.(*AudioStream)
+		audioStream := f.getCurrentTrack().Stream.(*AudioStream)
 		temp := make([]byte, 4)
 		f.metaDataBuf.Seek(4, io.SeekCurrent)
 		_, err = f.metaDataBuf.Read(temp)
@@ -474,7 +474,7 @@ func (f *VideoFile) ReadStreamExtraInfo() (err error) {
 		Fatal(err)
 		audioStream.SampleRate = binary.BigEndian.Uint32(temp) >> 16
 	} else if StreamType == Video {
-		videoStream := f.GetCurrentTrack().Stream.(*VideoStream)
+		videoStream := f.getCurrentTrack().Stream.(*VideoStream)
 		err = videoStream.Read(f.metaDataBuf)
 		Fatal(err)
 	}
@@ -527,7 +527,7 @@ func (stream *Stream) Read(buf *bytes.Reader) (err error) {
 	return nil
 }
 
-// ReadAudioStream  Чтение информации об аудиопотоке
+// Read  Чтение информации об аудиопотоке
 func (stream *AudioStream) Read(buf *bytes.Reader) (err error) {
 	defer Restore(&err, "ошибка чтения метаданных аудиопотока")
 	temp := make([]byte, 2)
@@ -544,7 +544,7 @@ func (stream *AudioStream) Read(buf *bytes.Reader) (err error) {
 	return nil
 }
 
-// ReadVideoStream Чтение информации о видеопотоке
+// Read Чтение информации о видеопотоке
 func (stream *VideoStream) Read(buf *bytes.Reader) (err error) {
 	defer Restore(&err, "ошибка чтения метаданных видеопотока")
 	temp := make([]byte, 4)
