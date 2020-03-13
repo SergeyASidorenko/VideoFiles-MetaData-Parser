@@ -172,7 +172,7 @@ func (f *VideoFile) Prepare() (temp []byte, err error) {
 		}
 		Fatal(err)
 	}
-	return temp, nil
+	return
 }
 
 // Parse Метод разбора видеофайла на метаданные
@@ -249,21 +249,19 @@ func (f *VideoFile) Parse() (err error) {
 // Open Метод проверки доступности и корректности файла, создание буфера и.т.д
 func (f *VideoFile) Open(r io.Reader) (err error) {
 	defer Restore(&err, "ошибка парсинга видеофайла")
-	f.buffer = bufio.NewReaderSize(r, 0xFFFF)
+	f.buffer = bufio.NewReader(r)
 	temp, err := f.Prepare()
 	Fatal(err)
 	f.buffer.Reset(nil)
+	f.buffer = nil
 	f.metaDataBuf = bytes.NewReader(temp)
-	return nil
+	return
 }
 
 // ToJSON сериализация метаданных в формат JSON
-func (f VideoFile) ToJSON() ([]byte, error) {
-	b, err := json.Marshal(f)
-	if err != nil {
-		return nil, err
-	}
-	return b, nil
+func (f VideoFile) ToJSON() (b []byte, err error) {
+	b, err = json.Marshal(f)
+	return
 }
 
 // getDateFromBytes Получения даты по набору байтов
@@ -281,13 +279,13 @@ func (f VideoFile) getDateFromMP4(data []byte) (time.Time, error) {
 func (f *VideoFile) seekBlockEnd() (err error) {
 	curPos, err := f.metaDataBuf.Seek(0, io.SeekCurrent)
 	if err != nil {
-		return err
+		return
 	}
 	_, err = f.metaDataBuf.Seek(f.blockSize-(curPos-f.startOfBlock), io.SeekCurrent)
 	if err != nil {
-		return err
+		return
 	}
-	return nil
+	return
 }
 
 // readFileInfo Чтение общей информации о видеофайле
@@ -295,14 +293,14 @@ func (f *VideoFile) readFileInfo() (err error) {
 	var temp = make([]byte, 4)
 	_, err = f.metaDataBuf.Read(temp)
 	if err != nil {
-		return err
+		return
 	}
 	brand := string(temp)
 	if !f.isSupported(brand) {
 		return errors.New("формат видеофайла неизвестен или не поддерживается")
 	}
 	f.Codec = codecs[brand]
-	return nil
+	return
 }
 
 // GetError Выдача описания ошибки сервиса вышестоящим потребителям
@@ -376,7 +374,7 @@ func (f *VideoFile) readContainer() (err error) {
 	} else if volume == 3.0 {
 		f.Movie.Volume = "maximum"
 	}
-	return nil
+	return
 }
 
 // readTrack Чтение общей информации о медиа-дорожке
@@ -432,7 +430,7 @@ func (f *VideoFile) readTrack() (err error) {
 	track.Width = binary.BigEndian.Uint32(temp8[:4])
 	track.Height = binary.BigEndian.Uint32(temp8[4:8])
 	f.Movie.Tracks = append(f.Movie.Tracks, track)
-	return nil
+	return
 }
 
 // getCurrentTrack Получение текущей обрабатываемой медиа-дорожки
@@ -453,7 +451,6 @@ func (f *VideoFile) readStreamExtraInfo() (err error) {
 		_, err = f.metaDataBuf.Read(temp)
 		Fatal(err)
 		audioStream.Format = string(temp)
-
 		_, err = f.metaDataBuf.Seek(16, io.SeekCurrent)
 		Fatal(err)
 		temp = make([]byte, 2)
@@ -477,7 +474,7 @@ func (f *VideoFile) readStreamExtraInfo() (err error) {
 		err = videoStream.Read(f.metaDataBuf)
 		Fatal(err)
 	}
-	return nil
+	return
 }
 
 // GetType Получение типа текущего потока
@@ -523,7 +520,7 @@ func (stream *Stream) Read(buf *bytes.Reader) (err error) {
 	_, err = buf.Read(temp)
 	Fatal(err)
 	stream.Type = streamTypes[string(temp)]
-	return nil
+	return
 }
 
 // Read  Чтение информации об аудиопотоке
@@ -533,14 +530,13 @@ func (stream *AudioStream) Read(buf *bytes.Reader) (err error) {
 	_, err = buf.Read(temp)
 	Fatal(err)
 	balance := int16(binary.BigEndian.Uint16(temp))
+	stream.AudioBalance = "normal"
 	if balance < 0 {
 		stream.AudioBalance = "left"
-	} else if balance == 0 {
-		stream.AudioBalance = "normal"
-	} else {
+	} else if balance > 0 {
 		stream.AudioBalance = "right"
 	}
-	return nil
+	return
 }
 
 // Read Чтение информации о видеопотоке
@@ -565,5 +561,5 @@ func (stream *VideoStream) Read(buf *bytes.Reader) (err error) {
 	_, err = buf.Read(temp)
 	Fatal(err)
 	stream.ColorDepth = binary.BigEndian.Uint16(temp)
-	return nil
+	return
 }
