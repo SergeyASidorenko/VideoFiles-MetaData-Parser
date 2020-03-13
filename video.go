@@ -315,7 +315,6 @@ func (f *VideoFile) ReadContainer() (err error) {
 	var temp4 = make([]byte, 4)
 	var temp8 = make([]byte, 8)
 	var temp16 = make([]byte, 16)
-	Fatal(err)
 	f.Movie.durationFlag, err = f.metaDataBuf.ReadByte()
 	Fatal(err)
 	_, err = f.metaDataBuf.Seek(3, io.SeekCurrent) // пропускаем три байта
@@ -423,7 +422,7 @@ func (f *VideoFile) ReadTrack() (err error) {
 }
 
 // GetCurrentTrack Получение текущей обрабатываемой медиа-дорожки
-func (f *VideoFile) GetCurrentTrack() (t *Track) {
+func (f *VideoFile) GetCurrentTrack() *Track {
 	return &f.Movie.Tracks[len(f.Movie.Tracks)-1]
 }
 
