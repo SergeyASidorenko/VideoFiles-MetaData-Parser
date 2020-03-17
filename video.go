@@ -148,23 +148,29 @@ func (f *VideoFile) CheckFile(buf *bufio.Reader) (err error) {
 		if err == io.EOF {
 			break
 		}
-		Fatal(err)
+		if err != nil {
+			return errFileIsNotValid
+		}
 		blockSize = int(binary.BigEndian.Uint32(blockInfo[:4]))
 		blockName = string(blockInfo[4:HeaderBlockSize])
 		if offset == 0 && !f.isMetaDataBlock(blockName) {
-			return NewAPIError("формат файла неизвестен или не поддерживается", nil)
+			return errFileIsNotValid
 		}
 		if f.isMetaDataBlock(blockName) {
 			if blockName == "ftyp" {
 				codec := string(blockInfo[HeaderBlockSize:12])
-				Fatal(err)
+				if err != nil {
+					return errFileIsNotValid
+				}
 				if !f.isSupported(string(codec)) {
-					return NewAPIError("неподдерживаемый формат сжатия видеофайла", nil)
+					return errFileCodecNotSupported
 				}
 			}
 			var blockData = make([]byte, blockSize)
 			_, err = io.ReadFull(buf, blockData)
-			Fatal(err)
+			if err != nil {
+				return errFileIsNotValid
+			}
 			temp = append(temp, blockData...)
 			offset += blockSize
 			continue
@@ -177,15 +183,14 @@ func (f *VideoFile) CheckFile(buf *bufio.Reader) (err error) {
 		if blockName == "mdat" {
 			if blockSize == 0x1 {
 				blockSize = int(binary.BigEndian.Uint64(blockInfo[HeaderBlockSize:16]))
-				Fatal(err)
 			} else if blockSize == 0x0 {
 				var n int
 				// считываем до конца, чтобы узнать размер файла
 				tempBuf := make([]byte, 0xFFFF)
 				for err != io.EOF {
 					n, err = buf.Read(tempBuf)
-					if err != nil && err != io.EOF {
-						Fatal(err)
+					if err != nil {
+						return errFileIsNotValid
 					}
 					offset += n
 				}
@@ -193,7 +198,9 @@ func (f *VideoFile) CheckFile(buf *bufio.Reader) (err error) {
 			}
 		}
 		_, err = buf.Discard(blockSize)
-		Fatal(err)
+		if err != nil {
+			return errFileIsNotValid
+		}
 		offset += blockSize
 	}
 	f.Size = offset

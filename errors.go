@@ -11,6 +11,12 @@ import (
 	"time"
 )
 
+// errFileIsNotValid ошибка - обрабатываемый файл не соответствует поддерживаемым форматам
+var errFileIsNotValid = NewAPIError("формат файла неизвестен или не поддерживается", nil)
+
+// errFileCodecNotSupported ошибка - обрабатываемый файл имеет неподдерживаемый алгоритм сжатия медиаданных
+var errFileCodecNotSupported = NewAPIError("неподдерживаемый формат сжатия видеофайла", nil)
+
 // Restore автовозврат ошибки
 func Restore(err *error, msg string) {
 	if err == nil || *err == nil {
