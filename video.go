@@ -43,7 +43,6 @@ var codecs = map[string]string{"isom": "ISO 14496-1 Base Media", "iso2": "ISO 14
 // Некоторые блоки могут иметь размер более 8 байт
 // Размер блока включает в себя размер заголовка
 type VideoFile struct {
-	buffer       *bufio.Reader // буфер всего файла
 	metaDataBuf  *bytes.Reader // буфер с метаданными
 	blockSize    int64         // размера текущего блока (байт)
 	startOfBlock int64         // позиция начала блока относительно начала потока данных (байт)
@@ -119,8 +118,8 @@ type VideoStream struct {
 	ColorDepth uint16 // глубина цвета (бит)
 }
 
-// Prepare проверка на соответствие формата переданного содержимого стандартам MP4
-func (f *VideoFile) Prepare() (temp []byte, err error) {
+// CheckFile проверка на соответствие формата переданного содержимого стандартам MP4
+func (f *VideoFile) CheckFile(buf *bufio.Reader) (err error) {
 	// TODO
 	// Блок требует доработки, уж очень недостоверная проверка соответствия формату MP4 злесь
 
@@ -130,22 +129,24 @@ func (f *VideoFile) Prepare() (temp []byte, err error) {
 	// наименование блока
 	var box string
 	// длина блока в байтах
-	var offset int64
+	var blockSize int64
+	var temp []byte
 	var boxInfo = make([]byte, HeaderBlockSize)
 	sectors := map[string]string{"ftyp": "", "moov": ""}
 	for {
 		isBlockRead = false
-		_, err = io.ReadFull(f.buffer, boxInfo)
+		_, err = io.ReadFull(buf, boxInfo)
 		if err == io.EOF {
 			break
 		}
 		Fatal(err)
-		offset = int64(binary.BigEndian.Uint32(boxInfo[:4]))
-		f.Size += offset
+		blockSize = int64(binary.BigEndian.Uint32(boxInfo[:4]))
+		f.Size += blockSize
 		box = string(boxInfo[4:HeaderBlockSize])
 		if _, ok := sectors[box]; ok {
-			var b = make([]byte, offset-HeaderBlockSize)
-			_, err = io.ReadFull(f.buffer, b)
+
+			var b = make([]byte, blockSize-HeaderBlockSize)
+			_, err = io.ReadFull(buf, b)
 			Fatal(err)
 			temp = append(temp, boxInfo...)
 			temp = append(temp, b...)
@@ -157,22 +158,22 @@ func (f *VideoFile) Prepare() (temp []byte, err error) {
 		// иногда (если длина этого блока указана как 0x0)
 		// данные этого блока продолжаются аж до конца файла
 		if box == "mdat" {
-			if offset == 0x1 {
+			if blockSize == 0x1 {
 				var extraBytesForBlockSize int64 = 0x8
-				temp8 := make([]byte, 8)
-				_, err = io.ReadFull(f.buffer, temp8)
+				_, err = io.ReadFull(buf, boxInfo)
 				Fatal(err)
-				offset = int64(binary.BigEndian.Uint64(temp8)) - extraBytesForBlockSize
-			} else if offset == 0x0 {
+				blockSize = int64(binary.BigEndian.Uint64(boxInfo)) - extraBytesForBlockSize
+			} else if blockSize == 0x0 {
 				return
 			}
 		}
 		if !isBlockRead {
-			_, err = f.buffer.Discard(int(offset - HeaderBlockSize))
+			_, err = buf.Discard(int(blockSize - HeaderBlockSize))
 		}
 		Fatal(err)
 	}
-	return
+	f.metaDataBuf = bytes.NewReader(temp)
+	return nil
 }
 
 // Parse Метод разбора видеофайла на метаданные
@@ -184,13 +185,13 @@ func (f *VideoFile) Parse() (err error) {
 	cur := make([]byte, 8)
 	f.startOfBlock, err = f.metaDataBuf.Seek(0, io.SeekCurrent)
 	Fatal(err)
-	_, err = f.metaDataBuf.Read(cur)
+	_, err = io.ReadFull(f.metaDataBuf, cur)
 	if err == io.EOF {
 		return nil
 	}
 	Fatal(err)
-	box = string(cur[4:8])
 	f.blockSize = int64(binary.BigEndian.Uint32(cur[:4]))
+	box = string(cur[4:8])
 	// Данный блок позволяет войти внутрь интересующего блока описания данных в
 	// видеофайле, структура видеофайла - это дерево блоков,
 	// каждый блок описывает определенную часть файла, например, блок медиаданных,
@@ -248,13 +249,9 @@ func (f *VideoFile) Parse() (err error) {
 
 // Open Метод проверки доступности и корректности файла, создание буфера и.т.д
 func (f *VideoFile) Open(r io.Reader) (err error) {
-	defer Restore(&err, "ошибка парсинга видеофайла")
-	f.buffer = bufio.NewReader(r)
-	temp, err := f.Prepare()
+	defer Restore(&err, "формат файла неизвестен или не поддерживается")
+	err = f.CheckFile(bufio.NewReader(r))
 	Fatal(err)
-	f.buffer.Reset(nil)
-	f.buffer = nil
-	f.metaDataBuf = bytes.NewReader(temp)
 	return
 }
 
@@ -291,14 +288,11 @@ func (f *VideoFile) seekBlockEnd() (err error) {
 // readFileInfo Чтение общей информации о видеофайле
 func (f *VideoFile) readFileInfo() (err error) {
 	var temp = make([]byte, 4)
-	_, err = f.metaDataBuf.Read(temp)
+	_, err = io.ReadFull(f.metaDataBuf, temp)
 	if err != nil {
 		return
 	}
 	brand := string(temp)
-	if !f.isSupported(brand) {
-		return errors.New("формат видеофайла неизвестен или не поддерживается")
-	}
 	f.Codec = codecs[brand]
 	return
 }
@@ -331,41 +325,41 @@ func (f *VideoFile) readContainer() (err error) {
 	_, err = f.metaDataBuf.Seek(3, io.SeekCurrent) // пропускаем три байта
 	Fatal(err)
 	if f.Movie.durationFlag == 0x1 {
-		_, err = f.metaDataBuf.Read(temp16)
+		_, err = io.ReadFull(f.metaDataBuf, temp16)
 		Fatal(err)
 		f.Movie.Created, err = f.getDateFromMP4(temp16[:8])
 		Fatal(err)
 		f.Movie.Modified, err = f.getDateFromMP4(temp16[8:16])
 		Fatal(err)
 	} else {
-		_, err = f.metaDataBuf.Read(temp8)
+		_, err = io.ReadFull(f.metaDataBuf, temp8)
 		Fatal(err)
 		f.Movie.Created, err = f.getDateFromMP4(temp8[:4])
 		Fatal(err)
 		f.Movie.Modified, err = f.getDateFromMP4(temp8[4:8])
 		Fatal(err)
 	}
-	_, err = f.metaDataBuf.Read(temp4)
+	_, err = io.ReadFull(f.metaDataBuf, temp4)
 	Fatal(err)
 	f.Movie.TimeScale = binary.BigEndian.Uint32(temp4)
 	if f.Movie.durationFlag == 0x1 {
-		_, err = f.metaDataBuf.Read(temp8)
+		_, err = io.ReadFull(f.metaDataBuf, temp8)
 		Fatal(err)
 		// Получение продолжительности в долях секунды
 		duration := time.Duration(1000*binary.BigEndian.Uint64(temp8)/uint64(f.Movie.TimeScale)) * time.Millisecond
 		f.Movie.Duration = duration.Seconds()
 
 	} else {
-		_, err = f.metaDataBuf.Read(temp4)
+		_, err = io.ReadFull(f.metaDataBuf, temp4)
 		Fatal(err)
 		// Получение продолжительности в долях секунды
 		duration := time.Duration(1000*binary.BigEndian.Uint32(temp4)/f.Movie.TimeScale) * time.Millisecond
 		f.Movie.Duration = duration.Seconds()
 	}
-	_, err = f.metaDataBuf.Read(temp4)
+	_, err = io.ReadFull(f.metaDataBuf, temp4)
 	Fatal(err)
 	f.Movie.PlayBackSpeed = binary.BigEndian.Uint16(temp4)
-	_, err = f.metaDataBuf.Read(temp4)
+	_, err = io.ReadFull(f.metaDataBuf, temp4)
 	Fatal(err)
 	volume := binary.BigEndian.Uint16(temp2)
 	f.Movie.Volume = "normal"
@@ -390,20 +384,20 @@ func (f *VideoFile) readTrack() (err error) {
 	_, err = f.metaDataBuf.Seek(3, io.SeekCurrent) // пропускаем три байта (флаги описания дорожки)
 	Fatal(err)
 	if track.durationFlag == 0x1 {
-		_, err = f.metaDataBuf.Read(temp8)
+		_, err = io.ReadFull(f.metaDataBuf, temp8)
 		Fatal(err)
 		track.Created, err = f.getDateFromMP4(temp8)
 		Fatal(err)
-		_, err = f.metaDataBuf.Read(temp8)
+		_, err = io.ReadFull(f.metaDataBuf, temp8)
 		Fatal(err)
 		track.Modified, err = f.getDateFromMP4(temp8)
 		Fatal(err)
 	} else {
-		_, err = f.metaDataBuf.Read(temp4)
+		_, err = io.ReadFull(f.metaDataBuf, temp4)
 		Fatal(err)
 		track.Created, err = f.getDateFromMP4(temp4)
 		Fatal(err)
-		_, err = f.metaDataBuf.Read(temp4)
+		_, err = io.ReadFull(f.metaDataBuf, temp4)
 		Fatal(err)
 		track.Modified, err = f.getDateFromMP4(temp4)
 		Fatal(err)
@@ -411,13 +405,13 @@ func (f *VideoFile) readTrack() (err error) {
 	_, err = f.metaDataBuf.Seek(8, io.SeekCurrent) // пропускаем 8 байт (4 track_id, 4 - зарезервированы)
 	Fatal(err)
 	if track.durationFlag == 0x1 {
-		_, err = f.metaDataBuf.Read(temp8)
+		_, err = io.ReadFull(f.metaDataBuf, temp8)
 		Fatal(err)
 		// Получение продолжительности в долях секунды
 		duration := time.Duration(1000*binary.BigEndian.Uint64(temp8)/uint64(f.Movie.TimeScale)) * time.Millisecond
 		track.Duration = duration.Seconds()
 	} else {
-		_, err = f.metaDataBuf.Read(temp4)
+		_, err = io.ReadFull(f.metaDataBuf, temp4)
 		Fatal(err)
 		// Получение продолжительности в долях секунды
 		duration := time.Duration(1000*binary.BigEndian.Uint32(temp4)/f.Movie.TimeScale) * time.Millisecond
@@ -425,7 +419,7 @@ func (f *VideoFile) readTrack() (err error) {
 	}
 	_, err = f.metaDataBuf.Seek(50, io.SeekCurrent)
 	Fatal(err)
-	_, err = f.metaDataBuf.Read(temp8)
+	_, err = io.ReadFull(f.metaDataBuf, temp8)
 	Fatal(err)
 	track.Width = binary.BigEndian.Uint32(temp8[:4])
 	track.Height = binary.BigEndian.Uint32(temp8[4:8])
@@ -448,13 +442,13 @@ func (f *VideoFile) readStreamExtraInfo() (err error) {
 		audioStream := f.getCurrentTrack().Stream.(*AudioStream)
 		temp := make([]byte, 4)
 		f.metaDataBuf.Seek(4, io.SeekCurrent)
-		_, err = f.metaDataBuf.Read(temp)
+		_, err = io.ReadFull(f.metaDataBuf, temp)
 		Fatal(err)
 		audioStream.Format = string(temp)
 		_, err = f.metaDataBuf.Seek(16, io.SeekCurrent)
 		Fatal(err)
 		temp = make([]byte, 2)
-		_, err = f.metaDataBuf.Read(temp)
+		_, err = io.ReadFull(f.metaDataBuf, temp)
 		Fatal(err)
 		channels := binary.BigEndian.Uint16(temp)
 		audioStream.Channels = "undefined"
@@ -466,7 +460,7 @@ func (f *VideoFile) readStreamExtraInfo() (err error) {
 		_, err = f.metaDataBuf.Seek(6, io.SeekCurrent)
 		Fatal(err)
 		temp = make([]byte, 4)
-		_, err = f.metaDataBuf.Read(temp)
+		_, err = io.ReadFull(f.metaDataBuf, temp)
 		Fatal(err)
 		audioStream.SampleRate = binary.BigEndian.Uint32(temp) >> 16
 	} else if StreamType == Video {
