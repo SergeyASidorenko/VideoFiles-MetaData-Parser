@@ -90,8 +90,8 @@ type Track struct {
 
 // StreamReader интерфейс медиапотока данных (их может быть аж до 10 типов, в нашем случае - только два)
 type StreamReader interface {
-	Read(buf *bytes.Reader) error // чтение данных исключительно, касающихся медиапотока
-	GetType() string              // получениет типа потока
+	Read(buf *bytes.Reader) // чтение данных исключительно, касающихся медиапотока
+	GetType() string        // получениет типа потока
 }
 
 // Stream общее описание потока, блок с именем 'minf',
@@ -229,24 +229,19 @@ func (f *VideoFile) Parse() (err error) {
 	// либо переходим с смежному узлу (перемещаем указатель буфера на длину текущего блока)
 	switch blockName {
 	case "ftyp":
-		err = f.readFileInfo()
-		Fatal(err)
+		f.readFileInfo()
 	case "mvhd":
-		err = f.readContainer()
-		Fatal(err)
+		f.readContainer()
 	case "tkhd":
-		err = f.readTrack()
-		Fatal(err)
+		f.readTrack()
 	case "mdhd":
 		stream := f.getCurrentTrack().Stream
-		err = stream.Read(f.metaDataBuf)
-		Fatal(err)
+		stream.Read(f.metaDataBuf)
 	case "smhd":
 		aStream := new(AudioStream)
 		aStream.Stream = f.getCurrentTrack().Stream.(*Stream)
 		f.getCurrentTrack().Stream = aStream
-		err = aStream.Read(f.metaDataBuf)
-		Fatal(err)
+		aStream.Read(f.metaDataBuf)
 	case "vmhd":
 		vStream := new(VideoStream)
 		vStream.Stream = f.getCurrentTrack().Stream.(*Stream)
@@ -271,8 +266,7 @@ func (f *VideoFile) Parse() (err error) {
 		return f.Parse()
 	}
 	// перемещаемся на позицию конца текущего блока
-	err = f.seekBlockEnd()
-	Fatal(err)
+	f.seekBlockEnd()
 	return f.Parse()
 }
 
@@ -300,19 +294,16 @@ func (f VideoFile) getDateFromMP4(data []byte) (time.Time, error) {
 	} else if len(data) == 8 {
 		return macStartTime.Add(time.Duration(binary.BigEndian.Uint64(data)) * time.Second), nil
 	}
-	return time.Time{}, errors.New("неизвестный формат даты")
+	panic("неизвестный формат даты")
 }
 
 // seekBlockEnd Перескок в конец текущего раздела видеофайла
-func (f *VideoFile) seekBlockEnd() (err error) {
+func (f *VideoFile) seekBlockEnd() {
+	var err error
 	curPos, err := f.metaDataBuf.Seek(0, io.SeekCurrent)
-	if err != nil {
-		return
-	}
+	Fatal(err)
 	_, err = f.metaDataBuf.Seek(f.blockSize-(curPos-f.startOfBlock), io.SeekCurrent)
-	if err != nil {
-		return
-	}
+	Fatal(err)
 	return
 }
 
@@ -354,8 +345,9 @@ func (f *VideoFile) isSupported(brand string) bool {
 }
 
 // readContainer Чтение общей информации о видеоконтейнере
-func (f *VideoFile) readContainer() (err error) {
-	defer Restore(&err, "ошибка чтения метаданных контейнера")
+func (f *VideoFile) readContainer() {
+	defer RestoreAndPanic("ошибка чтения метаданных контейнера")
+	var err error
 	// подготавливаем буферы для чтения различных полей (разной длины)
 	var temp2 = make([]byte, 2)
 	var temp4 = make([]byte, 4)
@@ -409,12 +401,12 @@ func (f *VideoFile) readContainer() (err error) {
 	} else if volume == 3.0 {
 		f.Movie.Volume = "maximum"
 	}
-	return
 }
 
 // readTrack Чтение общей информации о медиа-дорожке
-func (f *VideoFile) readTrack() (err error) {
-	defer Restore(&err, "ошибка чтения метаданных медиадорожки")
+func (f *VideoFile) readTrack() {
+	defer RestoreAndPanic("ошибка чтения метаданных медиадорожки")
+	var err error
 	var temp4 = make([]byte, 4)
 	var temp8 = make([]byte, 8)
 	// Создаем пустую дорожку
@@ -465,7 +457,6 @@ func (f *VideoFile) readTrack() (err error) {
 	track.Width = binary.BigEndian.Uint32(temp8[:4])
 	track.Height = binary.BigEndian.Uint32(temp8[4:8])
 	f.Movie.Tracks = append(f.Movie.Tracks, track)
-	return
 }
 
 // getCurrentTrack Получение текущей обрабатываемой медиа-дорожки
@@ -474,8 +465,9 @@ func (f *VideoFile) getCurrentTrack() *Track {
 }
 
 // readStreamExtraInfo Чтение дополнительной информации о потоке
-func (f *VideoFile) readStreamExtraInfo() (err error) {
-	defer Restore(&err, "ошибка чтения дополнительных метаданных медиапотока")
+func (f *VideoFile) readStreamExtraInfo() {
+	defer RestoreAndPanic("ошибка чтения дополнительных метаданных медиапотока")
+	var err error
 	_, err = f.metaDataBuf.Seek(8, io.SeekCurrent)
 	Fatal(err)
 	StreamType := f.getCurrentTrack().Stream.GetType()
@@ -506,10 +498,8 @@ func (f *VideoFile) readStreamExtraInfo() (err error) {
 		audioStream.SampleRate = binary.BigEndian.Uint32(temp) >> 16
 	} else if StreamType == Video {
 		videoStream := f.getCurrentTrack().Stream.(*VideoStream)
-		err = videoStream.Read(f.metaDataBuf)
-		Fatal(err)
+		videoStream.Read(f.metaDataBuf)
 	}
-	return
 }
 
 // GetType Получение типа текущего потока
@@ -518,8 +508,9 @@ func (stream *Stream) GetType() string {
 }
 
 // Read Чтение данные о потоке
-func (stream *Stream) Read(buf *bytes.Reader) (err error) {
-	defer Restore(&err, "ошибка чтения метаданных медиапотока")
+func (stream *Stream) Read(buf *bytes.Reader) {
+	defer RestoreAndPanic("ошибка чтения метаданных медиапотока")
+	var err error
 	var temp = make([]byte, 4)
 	stream.durationFlag, err = buf.ReadByte()
 	Fatal(err)
@@ -555,12 +546,12 @@ func (stream *Stream) Read(buf *bytes.Reader) (err error) {
 	_, err = buf.Read(temp)
 	Fatal(err)
 	stream.Type = streamTypes[string(temp)]
-	return
 }
 
 // Read  Чтение информации об аудиопотоке
-func (stream *AudioStream) Read(buf *bytes.Reader) (err error) {
-	defer Restore(&err, "ошибка чтения метаданных аудиопотока")
+func (stream *AudioStream) Read(buf *bytes.Reader) {
+	defer RestoreAndPanic("ошибка чтения метаданных аудиопотока")
+	var err error
 	temp := make([]byte, 2)
 	_, err = buf.Read(temp)
 	Fatal(err)
@@ -571,12 +562,12 @@ func (stream *AudioStream) Read(buf *bytes.Reader) (err error) {
 	} else if balance > 0 {
 		stream.AudioBalance = "right"
 	}
-	return
 }
 
 // Read Чтение информации о видеопотоке
-func (stream *VideoStream) Read(buf *bytes.Reader) (err error) {
-	defer Restore(&err, "ошибка чтения метаданных видеопотока")
+func (stream *VideoStream) Read(buf *bytes.Reader) {
+	defer RestoreAndPanic("ошибка чтения метаданных видеопотока")
+	var err error
 	temp := make([]byte, 4)
 	_, err = buf.Seek(4, io.SeekCurrent)
 	Fatal(err)
@@ -596,5 +587,4 @@ func (stream *VideoStream) Read(buf *bytes.Reader) (err error) {
 	_, err = buf.Read(temp)
 	Fatal(err)
 	stream.ColorDepth = binary.BigEndian.Uint16(temp)
-	return
 }

@@ -17,6 +17,14 @@ var errFileIsNotValid = NewAPIError("формат файла неизвесте�
 // errFileCodecNotSupported ошибка - обрабатываемый файл имеет неподдерживаемый алгоритм сжатия медиаданных
 var errFileCodecNotSupported = NewAPIError("неподдерживаемый формат сжатия видеофайла", nil)
 
+// RestoreAndPanic автовозврат ошибки и снова вызов паники
+func RestoreAndPanic(msg string) {
+	if r := recover(); r != nil {
+		err := r.(error)
+		panic(NewAPIError(msg, err))
+	}
+}
+
 // Restore автовозврат ошибки
 func Restore(err *error, msg string) {
 	if err == nil || *err == nil {
