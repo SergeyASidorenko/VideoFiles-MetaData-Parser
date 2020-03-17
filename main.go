@@ -38,27 +38,36 @@ func initLog(filePath string) error {
 func parseVideoInForm(res http.ResponseWriter, req *http.Request) {
 	if req.Method == "POST" {
 		var fileInfo VideoFile
-		defer func() {
-			if r := recover(); r != nil {
-				e := r.(error)
-				apiErr := fileInfo.GetError(e)
-				log.Printf(apiErr.Error())
-				data, _ := json.Marshal(apiErr)
-				res.Write(data)
-			}
-		}()
 		var data []byte
 		res.Header().Set("Content-Type", "text/json")
 		err := fileInfo.Open(req.Body)
-		Fatal(err)
+		if err != nil {
+			sendError(res, err)
+			return
+		}
 		defer req.Body.Close()
 		err = fileInfo.Parse()
-		Fatal(err)
+		if err != nil {
+			sendError(res, err)
+			return
+		}
 		data, err = fileInfo.ToJSON()
-		Fatal(err)
+		if err != nil {
+			sendError(res, err)
+			return
+		}
 		res.Write(data)
 	} else {
 		res.WriteHeader(http.StatusBadRequest)
+	}
+}
+func sendError(w http.ResponseWriter, e error) {
+	log.Printf(e.Error())
+	data, err := json.Marshal(e)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+	} else {
+		w.Write(data)
 	}
 }
 

@@ -11,22 +11,22 @@ import (
 	"time"
 )
 
-// errFileIsNotValid ошибка - обрабатываемый файл не соответствует поддерживаемым форматам
-var errFileIsNotValid = NewAPIError("формат файла неизвестен или не поддерживается", nil)
+// ErrFileIsNotValid ошибка - обрабатываемый файл не соответствует поддерживаемым форматам
+var ErrFileIsNotValid = NewAPIError("формат файла неизвестен или не поддерживается", nil)
 
-// errFileCodecNotSupported ошибка - обрабатываемый файл имеет неподдерживаемый алгоритм сжатия медиаданных
-var errFileCodecNotSupported = NewAPIError("неподдерживаемый формат сжатия видеофайла", nil)
+// ErrFileCodecNotSupported ошибка - обрабатываемый файл имеет неподдерживаемый алгоритм сжатия медиаданных
+var ErrFileCodecNotSupported = NewAPIError("неподдерживаемый формат сжатия видеофайла", nil)
 
-// RestoreAndPanic автовозврат ошибки и снова вызов паники
-func RestoreAndPanic(msg string) {
+// restoreAndPanic автовозврат ошибки и снова вызов паники
+func restoreAndPanic(msg string) {
 	if r := recover(); r != nil {
 		err := r.(error)
 		panic(NewAPIError(msg, err))
 	}
 }
 
-// Restore автовозврат ошибки
-func Restore(err *error, msg string) {
+// restore автовозврат ошибки
+func restore(err *error, msg string) {
 	if err == nil || *err == nil {
 		return
 	}
@@ -36,8 +36,8 @@ func Restore(err *error, msg string) {
 	}
 }
 
-// Fatal автопаника при ошибке
-func Fatal(err error) {
+// fatal автопаника при ошибке
+func fatal(err error) {
 	if err != nil {
 		panic(err)
 	}
@@ -46,18 +46,18 @@ func Fatal(err error) {
 // APIError ошибка веб-сервиса
 type APIError struct {
 	APIMsg string
-	Msg    string
-	Err    error
+	msg    string
+	err    error
 }
 
-// Error текст ошибки
-func (e APIError) Error() string {
+// sysLog стек ошибок
+func (e APIError) sysLog() string {
 	var tempErr APIError
-	err := e.Err
-	msg := e.Msg
+	err := e.err
+	msg := e.msg
 	for errors.As(err, &tempErr) {
 		msg = msg + "; " + tempErr.Error()
-		err = tempErr.Err
+		err = tempErr.err
 	}
 	// если объект внутренней ошибки существует - добавляем его содержимое
 	if err != nil {
@@ -66,9 +66,14 @@ func (e APIError) Error() string {
 	return msg
 }
 
+// Error текст ошибки
+func (e APIError) Error() string {
+	return e.APIMsg
+}
+
 // UnWrap извлечение ошибки
 func (e APIError) UnWrap() error {
-	return e.Err
+	return e.err
 }
 
 // MarshalJSON сериализация сведений об ошибке в формате JSON
@@ -83,5 +88,5 @@ func (e APIError) MarshalJSON() (b []byte, err error) {
 
 // NewAPIError создание новой ошибки
 func NewAPIError(msg string, err error) (e APIError) {
-	return APIError{APIMsg: msg, Msg: msg, Err: err}
+	return APIError{APIMsg: msg, msg: msg, err: err}
 }
