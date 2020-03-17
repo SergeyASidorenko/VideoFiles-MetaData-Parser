@@ -28,8 +28,22 @@ const HeaderBlockSize = 0x8
 // описание типов потоков
 var streamTypes = map[string]string{"soun": "Audio Media", "vide": "Visual Media"}
 
+// наименование блоков, из которых извлекаются метаданные
+var sectors = []string{"ftyp", "moov"}
+
 // стандарты описания алгоритмов сжатия потоков
-var codecs = map[string]string{"isom": "ISO 14496-1 Base Media", "iso2": "ISO 14496-12 Base Media", "mp41": "ISO 14496-1 vers. 1", "mp42": "ISO 14496-1 vers. 2"}
+var codecs = map[string]string{
+	"isom": "ISO 14496-1 Base Media",
+	"iso2": "ISO 14496-12 Base Media",
+	"mp41": "ISO 14496-1 vers. 1",
+	"mp42": "ISO 14496-1 vers. 2",
+	"qt  ": "QuickTime Movie",
+	"3gp4": "3G MP4 Profile",
+	"mp71": "ISO 14496-12 MPEG-7 Meta Data",
+	"M4A":  "Apple AAC audio w/ iTunes info",
+	"M4B":  "Apple audio w/ iTunes position",
+	"mmp4": "3G Mobile MP4",
+}
 
 // VideoFile Структура для хранения метаинформации о видеофайле
 // Файл MP4 представляет собой древовидную структуру,
@@ -46,7 +60,7 @@ type VideoFile struct {
 	metaDataBuf  *bytes.Reader // буфер с метаданными
 	blockSize    int64         // размера текущего блока (байт)
 	startOfBlock int64         // позиция начала блока относительно начала потока данных (байт)
-	Size         int64         // размер файла (байт)
+	Size         int           // размер файла (байт)
 	Codec        string        // стандарт используемого сжатия видео и аудио потоков
 	Movie        Container     // видеоконтейнер
 }
@@ -120,58 +134,69 @@ type VideoStream struct {
 
 // CheckFile проверка на соответствие формата переданного содержимого стандартам MP4
 func (f *VideoFile) CheckFile(buf *bufio.Reader) (err error) {
-	// TODO
-	// Блок требует доработки, уж очень недостоверная проверка соответствия формату MP4 злесь
-
-	// Если блок прочитан полностью - смещать на начало следующего блока не надо
-	// для этого используется флаг isBlockRead
-	var isBlockRead bool
+	// массив для хранения заголовка блока
+	var blockInfo []byte
 	// наименование блока
-	var box string
+	var blockName string
 	// длина блока в байтах
-	var blockSize int64
+	var blockSize int
+	// текущее смещение от начала потока в байтах
+	var offset int
 	var temp []byte
-	var boxInfo = make([]byte, HeaderBlockSize)
-	sectors := map[string]string{"ftyp": "", "moov": ""}
 	for {
-		isBlockRead = false
-		_, err = io.ReadFull(buf, boxInfo)
+		blockInfo, err = buf.Peek(0xF)
 		if err == io.EOF {
 			break
 		}
 		Fatal(err)
-		blockSize = int64(binary.BigEndian.Uint32(boxInfo[:4]))
-		f.Size += blockSize
-		box = string(boxInfo[4:HeaderBlockSize])
-		if _, ok := sectors[box]; ok {
-
-			var b = make([]byte, blockSize-HeaderBlockSize)
-			_, err = io.ReadFull(buf, b)
+		blockSize = int(binary.BigEndian.Uint32(blockInfo[:4]))
+		blockName = string(blockInfo[4:HeaderBlockSize])
+		if offset == 0 && !f.isMetaDataBlock(blockName) {
+			return NewAPIError("формат файла неизвестен или не поддерживается", nil)
+		}
+		if f.isMetaDataBlock(blockName) {
+			if blockName == "ftyp" {
+				codec := string(blockInfo[HeaderBlockSize:12])
+				Fatal(err)
+				if !f.isSupported(string(codec)) {
+					return NewAPIError("неподдерживаемый формат сжатия видеофайла", nil)
+				}
+			}
+			var blockData = make([]byte, blockSize)
+			_, err = io.ReadFull(buf, blockData)
 			Fatal(err)
-			temp = append(temp, boxInfo...)
-			temp = append(temp, b...)
-			isBlockRead = true
+			temp = append(temp, blockData...)
+			offset += blockSize
+			continue
 		}
 		// дополнительная обработка блока медиаданных
-		//  здесь формат заголовка может быть другим
+		// здесь формат заголовка может быть другим
 		// в случае больших файлов под размер блока может отводиться не 4 а 8 байтов, а
 		// иногда (если длина этого блока указана как 0x0)
 		// данные этого блока продолжаются аж до конца файла
-		if box == "mdat" {
+		if blockName == "mdat" {
 			if blockSize == 0x1 {
-				var extraBytesForBlockSize int64 = 0x8
-				_, err = io.ReadFull(buf, boxInfo)
+				blockSize = int(binary.BigEndian.Uint64(blockInfo[HeaderBlockSize:16]))
 				Fatal(err)
-				blockSize = int64(binary.BigEndian.Uint64(boxInfo)) - extraBytesForBlockSize
 			} else if blockSize == 0x0 {
+				var n int
+				// считываем до конца, чтобы узнать размер файла
+				tempBuf := make([]byte, 0xFFFF)
+				for err != io.EOF {
+					n, err = buf.Read(tempBuf)
+					if err != nil && err != io.EOF {
+						Fatal(err)
+					}
+					offset += n
+				}
 				return
 			}
 		}
-		if !isBlockRead {
-			_, err = buf.Discard(int(blockSize - HeaderBlockSize))
-		}
+		_, err = buf.Discard(blockSize)
 		Fatal(err)
+		offset += blockSize
 	}
+	f.Size = offset
 	f.metaDataBuf = bytes.NewReader(temp)
 	return nil
 }
@@ -180,25 +205,25 @@ func (f *VideoFile) CheckFile(buf *bufio.Reader) (err error) {
 func (f *VideoFile) Parse() (err error) {
 	defer Restore(&err, "ошибка парсинга видеофайла")
 	// наименование блока
-	var box string
+	var blockName string
 	// длина блока в байтах
-	cur := make([]byte, 8)
+	blockInfo := make([]byte, 8)
 	f.startOfBlock, err = f.metaDataBuf.Seek(0, io.SeekCurrent)
 	Fatal(err)
-	_, err = io.ReadFull(f.metaDataBuf, cur)
+	_, err = io.ReadFull(f.metaDataBuf, blockInfo)
 	if err == io.EOF {
 		return nil
 	}
 	Fatal(err)
-	f.blockSize = int64(binary.BigEndian.Uint32(cur[:4]))
-	box = string(cur[4:8])
+	f.blockSize = int64(binary.BigEndian.Uint32(blockInfo[:4]))
+	blockName = string(blockInfo[4:8])
 	// Данный блок позволяет войти внутрь интересующего блока описания данных в
 	// видеофайле, структура видеофайла - это дерево блоков,
 	// каждый блок описывает определенную часть файла, например, блок медиаданных,
 	// блок описания файла, бок описания контейнера и так далее
 	// В зависимости от блока мы либо переходим в дочернему узлу (сразу повторно вызываем метод Parse)
 	// либо переходим с смежному узлу (перемещаем указатель буфера на длину текущего блока)
-	switch box {
+	switch blockName {
 	case "ftyp":
 		err = f.readFileInfo()
 		Fatal(err)
@@ -249,9 +274,11 @@ func (f *VideoFile) Parse() (err error) {
 
 // Open Метод проверки доступности и корректности файла, создание буфера и.т.д
 func (f *VideoFile) Open(r io.Reader) (err error) {
-	defer Restore(&err, "формат файла неизвестен или не поддерживается")
+	var errAPI APIError
 	err = f.CheckFile(bufio.NewReader(r))
-	Fatal(err)
+	if err != nil && !errors.As(err, &errAPI) {
+		err = NewAPIError("ошибка при подготовке файла", err)
+	}
 	return
 }
 
@@ -299,14 +326,24 @@ func (f *VideoFile) readFileInfo() (err error) {
 
 // GetError Выдача описания ошибки сервиса вышестоящим потребителям
 func (f *VideoFile) GetError(e error) *APIError {
-	var apiErr APIError
-	if !errors.Is(e, &apiErr) {
-		apiErr = NewAPIError("ошибка на стороне сервера", e)
+	var apiErr = &APIError{}
+	if e != nil && !errors.As(e, apiErr) {
+		*apiErr = NewAPIError("ошибка на стороне сервера", e)
 	}
-	return &apiErr
+	return apiErr
 }
 
-// isSupported Проверка формата видеофайла (поддерживается или нет)
+// isMetaDataBlock Проверка является ли данный блок блоком, содержащим метаданные
+func (f *VideoFile) isMetaDataBlock(blockName string) bool {
+	for _, v := range sectors {
+		if v == blockName {
+			return true
+		}
+	}
+	return false
+}
+
+// isSupported Проверка стандарта сжатия аудио/видеопотоков (поддерживается или нет)
 func (f *VideoFile) isSupported(brand string) bool {
 	_, ok := codecs[brand]
 	return ok

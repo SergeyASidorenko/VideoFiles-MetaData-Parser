@@ -41,11 +41,14 @@ func (e APIError) Error() string {
 	var tempErr APIError
 	err := e.Err
 	msg := e.Msg
-	for errors.Is(err, &tempErr) {
+	for errors.As(err, &tempErr) {
 		msg = msg + "; " + tempErr.Error()
 		err = tempErr.Err
 	}
-	msg += "; " + err.Error()
+	// если объект внутренней ошибки существует - добавляем его содержимое
+	if err != nil {
+		msg += "; " + err.Error()
+	}
 	return msg
 }
 
