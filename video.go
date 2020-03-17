@@ -159,10 +159,7 @@ func (f *VideoFile) CheckFile(buf *bufio.Reader) (err error) {
 		if f.isMetaDataBlock(blockName) {
 			if blockName == "ftyp" {
 				codec := string(blockInfo[HeaderBlockSize:12])
-				if err != nil {
-					return errFileIsNotValid
-				}
-				if !f.isSupported(string(codec)) {
+				if !f.isSupported(codec) {
 					return errFileCodecNotSupported
 				}
 			}
@@ -306,7 +303,7 @@ func (f VideoFile) getDateFromMP4(data []byte) (time.Time, error) {
 	return time.Time{}, errors.New("неизвестный формат даты")
 }
 
-// seekBlockEnd Перескок в конец текущего раздела видеофайла и очистка буфера
+// seekBlockEnd Перескок в конец текущего раздела видеофайла
 func (f *VideoFile) seekBlockEnd() (err error) {
 	curPos, err := f.metaDataBuf.Seek(0, io.SeekCurrent)
 	if err != nil {
